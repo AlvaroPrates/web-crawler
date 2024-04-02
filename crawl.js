@@ -1,5 +1,50 @@
 const { JSDOM } = require('jsdom')
 
+async function crawlPage(baseURL, currentURL, pages) {
+    const currentUrlObj = new URL(currentURL)
+    const baseUrlObj = new URL(baseURL)
+
+    if (currentUrlObj.hostname !== baseUrlObj.hostname) {
+        return pages
+    }
+
+    const normalizedURL = normalizeURL(currentURL)
+
+    if (pages[normalizedURL] > 0) {
+        pages[normalizedURL]++
+        return pages
+    }
+
+    pages[normalizedURL] = 1
+
+    console.log(`crawling ${currentURL}`)
+
+    let htmlBody = ''
+
+    try {
+        const resp = await fetch(currentURL)
+        if (resp.status > 399) {
+            console.log(`Got HTTP error, status code: ${resp.status}`)
+            return pages
+        }
+        const contentType = resp.headers.get('content-type')
+        if (!contentType.includes('text/html')) {
+            console.log(`Got non-html response: ${contentType}`)
+            return pages
+        }
+        htmlBody = await resp.text()
+    } catch (err) {
+        console.log(err.message)
+    }
+
+    const nextURLs = getURLsFromHTML(htmlBody, baseURL)
+    for (const nextURL of nextURLs) {
+        pages = await crawlPage(baseURL, nextURL, pages)
+    }
+
+    return pages
+}
+
 function getURLsFromHTML(htmlBody, baseURL) {
     const urls = []
     const dom = new JSDOM(htmlBody)
@@ -24,16 +69,15 @@ function getURLsFromHTML(htmlBody, baseURL) {
 
 function normalizeURL(url) {
     const urlObj = new URL(url)
-    let normalizedURL = urlObj.hostname + urlObj.pathname
-
-    if (normalizedURL.length > 0 && normalizedURL.endsWith('/')) {
-        normalizedURL = normalizedURL.slice(0, -1);
+    let fullPath = `${urlObj.host}${urlObj.pathname}`
+    if (fullPath.length > 0 && fullPath.slice(-1) === '/') {
+        fullPath = fullPath.slice(0, -1)
     }
-
-    return normalizedURL.toLowerCase()
+    return fullPath
 }
 
 module.exports = {
+    crawlPage,
     normalizeURL,
     getURLsFromHTML
 }
